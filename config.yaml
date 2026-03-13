@@ -1,0 +1,6 @@
+data_provider:
+  # Move yfinance to the top priority
+  priority:
+    - yfinance
+    - efinance
+    - akshare
