@@ -1,0 +1,10 @@
+model_list:
+  # --- OpenAI Flagship Engine ---
+  - model_name: openai/gpt-4o
+    litellm_params:
+      model: openai/gpt-4o
+      api_key: "os.environ/OPENAI_API_KEY"
+
+router_settings:
+  routing_strategy: simple-shuffle
+  num_retries: 2
