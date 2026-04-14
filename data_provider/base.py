@@ -440,11 +440,65 @@ class DataFetcherManager:
             # 默认数据源将在首次使用时延迟加载
             self._init_default_fetchers()
     
+    def _apply_config_yaml_priorities(self) -> None:
+        """
+        Apply data provider priority order from config.yaml if present.
+
+        Reads the `data_provider.priority` list from config.yaml in the project
+        root and reassigns instance-level `priority` attributes so that the
+        order in the YAML file is respected.  Fetchers not mentioned in the list
+        are placed after the explicitly ordered ones.
+
+        Example config.yaml:
+            data_provider:
+              priority:
+                - yfinance
+                - efinance
+                - akshare
+        """
+        import yaml
+        from pathlib import Path
+
+        config_path = Path(__file__).parent.parent / 'config.yaml'
+        if not config_path.exists():
+            return
+
+        try:
+            with open(config_path, encoding='utf-8') as f:
+                config_data = yaml.safe_load(f) or {}
+        except Exception as e:
+            logger.warning(f"Failed to read config.yaml for provider priority: {e}")
+            return
+
+        priority_list = config_data.get('data_provider', {}).get('priority', [])
+        if not priority_list:
+            return
+
+        assigned_ids: set = set()
+        for rank, provider_name in enumerate(priority_list):
+            name_lower = provider_name.strip().lower()
+            for fetcher in self._fetchers:
+                if fetcher.name.lower().startswith(name_lower):
+                    fetcher.priority = rank
+                    assigned_ids.add(id(fetcher))
+                    break
+
+        # Fetchers not mentioned in the priority list come after the listed ones
+        next_rank = len(priority_list)
+        for fetcher in self._fetchers:
+            if id(fetcher) not in assigned_ids:
+                fetcher.priority = next_rank
+                next_rank += 1
+
+        self._fetchers.sort(key=lambda f: f.priority)
+        logger.info(f"Applied config.yaml data_provider priority: {priority_list}")
+
     def _init_default_fetchers(self) -> None:
         """
         初始化默认数据源列表
 
         优先级动态调整逻辑：
+        - 如果存在 config.yaml 且指定了 data_provider.priority，按其顺序排列
         - 如果配置了 TUSHARE_TOKEN：Tushare 优先级提升为 0（最高）
         - 否则按默认优先级：
           0. EfinanceFetcher (Priority 0) - 最高优先级
@@ -480,6 +534,9 @@ class DataFetcherManager:
 
         # 按优先级排序（Tushare 如果配置了 Token 且初始化成功，优先级为 0）
         self._fetchers.sort(key=lambda f: f.priority)
+
+        # Apply config.yaml priority overrides (e.g. data_provider.priority list)
+        self._apply_config_yaml_priorities()
 
         # 构建优先级说明
         priority_info = ", ".join([f"{f.name}(P{f.priority})" for f in self._fetchers])
